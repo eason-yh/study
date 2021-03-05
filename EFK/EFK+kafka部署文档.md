@@ -1,10 +1,10 @@
-## EFK+Kafka开发环境安装
+# EFK+Kafka开发环境安装
 
 
 
 
 
-### 开发环境信息统计
+## 开发环境信息统计
 
 | IP地址        | 主机名称   | 服务名称      | 版本号     |
 | :------------ | ---------- | ------------- | ---------- |
@@ -44,15 +44,15 @@
 
  
 
-### Elasticsearch集群安装
+## 安装Elasticsearch集群
 
- 
+---
 
-安装JDK，elastic依赖java环境，本地使用jdk版本jdk-8u191-linux-x64.tar.gz
+- 安装JDK，elastic依赖java环境，本地使用jdk版本jdk-8u191-linux-x64.tar.gz
 
 ~~~bash
 #创建用户
-#useradd elastic -M -s /sbin/nologin
+useradd elastic -M -s /sbin/nologin
 #创建数据和日志目录
 mkdir /data/soft/elastic/{elastic-data,elastic-logs}
 #授权elastic用户
@@ -73,7 +73,15 @@ vm.max_map_count=655360
 
 ~~~
 
-配置文件三台修改对应信息
+- 配置文件三台修改对应信息
+
+目前7版本不支持配置文件中添加分片参数和副本参数，需要通过kibana或者API的方式进行更改
+
+参考文章：https://blog.csdn.net/bowenlaw/article/details/104539087
+
+注意：如在kibana中配置，需要配置模板匹配的索引名，需要用 *
+
+
 
 ~~~bash
 cluster.name: es-cluster #集群名称，三台一致
@@ -89,7 +97,13 @@ http.cors.allow-origin: "*"
 
 ~~~
 
-启动脚本，把脚本放到对应目录下，使用 systemctl start elastic 启动
+```bash
+vim /etc/systemd/system/elastic.service
+```
+
+
+
+- 启动脚本，把脚本放到对应目录下，使用` systemctl start elastic `启动
 
 ~~~bash
 [Unit]
@@ -122,7 +136,9 @@ systemctl enable elastic
 
 ~~~
 
-### 安装Zookeeper
+## 安装Zookeeper
+
+---
 
 ~~~bash
 #进入到soft目录，解压zookeeper包到当前目录
@@ -150,7 +166,31 @@ echo “1” > /data/soft/zk/zk-data/myid
 cd /data/soft/zk/zk-log/ && /data/soft/zookeeper/bin/zkServer.sh start
 ~~~
 
-### 安装kafka
+- 启动脚本
+
+```bash
+[Unit]
+Description=zookeeper.service
+After=network.target
+ConditionPathExists=/data/soft/zk/zookeeper/conf/zoo.cfg
+[Service]
+Type=forking
+Environment=JAVA_HOME=/data/soft/jdk1.8.0_191
+User=root
+Group=root
+ExecStart=/data/soft/zk/zookeeper/bin/zkServer.sh start
+ExecStop=/data/soft/zk/zookeeper/bin/zkServer.sh stop
+[Install]
+WantedBy=multi-user.target
+```
+
+- 查看zookeeper集群状态`./zk/zookeeper/bin/zkServer.sh status`
+
+
+
+## 安装Kafka
+
+---
 
   ~~~bash
 #将安装包解压到对应文件夹
@@ -164,15 +204,17 @@ num.io.threads=8
 socket.send.buffer.bytes=102400
 socket.receive.buffer.bytes=102400
 socket.request.max.bytes=104857600
-log.dirs=/tmp/kafka-logs
-num.partitions=1
+log.dirs=/data/soft/kafka/kafka-logs
+log.retention.hours=120
+log.retention.check.interval.ms=300000
+log.segment.bytes=1073741824
+log.cleaner.delete.retention.ms=86400000
+log.cleaner.backoff.ms=15000
+num.partitions=6
 num.recovery.threads.per.data.dir=1
 offsets.topic.replication.factor=1
 transaction.state.log.replication.factor=1
 transaction.state.log.min.isr=1
-log.retention.hours=168
-log.segment.bytes=1073741824
-log.retention.check.interval.ms=300000
 zookeeper.connect=10.100.10.162:2181,10.100.10.163:2181,10.100.10.164:2181
 zookeeper.connection.timeout.ms=6000
 group.initial.rebalance.delay.ms=0
@@ -185,11 +227,67 @@ broker.id=2
 /data/soft/kafka/bin/kafka-server-start.sh -daemon /data/soft/kafka/config/server.properties
   ~~~
 
-### 安装logstash
+- 启动脚本
+
+~~~bash
+[Unit]
+Description=kafka
+After=network.target zookeeper.service
+[Service]
+Type=simple
+Environment=JAVA_HOME=/data/soft/jdk1.8.0_191
+ExecStart=/data/soft/kafka/bin/kafka-server-start.sh /data/soft/kafka/config/server.properties
+ExecStop=/data/soft/kafka/bin/kafka-server-stop.sh
+PrivateTmp=true
+User=root
+Group=root
+~~~
+
+## 安装Logstash
+
+---
 
 ~~~bash
 #将安装包解压到对应文件夹
 tar xf /data/tools/logstash-7.10.0-linux-x86_64.tar.gz -C /data/soft/logstash
+
+#生成启动命令
+cd /data/soft/logstash/
+./bin/system-install ./config/startup.options system
+~~~
+
+- Logstash启动脚本
+
+~~~bash
+[Unit]
+Description=logstash
+
+[Service]
+Type=simple
+User=root
+Group=root
+# Load env vars from /etc/default/ and /etc/sysconfig/ if they exist.
+# Prefixing the path with '-' makes it try to load, but if the file doesn't
+# exist, it continues onward.
+EnvironmentFile=-/data/soft/logstash/config
+Environment=JAVA_HOME=/data/soft/jdk1.8.0_191
+ExecStart=/data/soft/logstash/bin/logstash -f /data/soft/logstash/config/kafka-to-elastic.conf
+Restart=always
+WorkingDirectory=/
+Nice=19
+LimitNOFILE=16384
+
+# When stopping, how long to wait before giving up and sending SIGKILL?
+# Keep in mind that SIGKILL on a process can cause data loss.
+TimeoutStopSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+~~~
+
+- 配置文件，收集一个Topic，传输到Elastic集群
+
+~~~bash
 #编辑新的配置文件config/kafka-logstash-es.conf
 input {
     kafka {
@@ -218,44 +316,19 @@ output {
             timeout => 300
         }
 }
-#生成启动命令
-cd /data/soft/logstash/
-./bin/system-install ./config/startup.options system
+~~~
 
-#更改红色部分，替换为对应的配置文件
-[Unit]
-Description=logstash
+- 收集不同的Topic到Elastic
 
-[Service]
-Type=simple
-User=root
-Group=root
-# Load env vars from /etc/default/ and /etc/sysconfig/ if they exist.
-# Prefixing the path with '-' makes it try to load, but if the file doesn't
-# exist, it continues onward.
-EnvironmentFile=-/etc/default/logstash
-EnvironmentFile=-/etc/sysconfig/logstash
-ExecStart=/data/soft/logstash/bin/logstash "--path.config" "/data/soft/logstash/config/kafka-logstash-es.conf" "--path.logs" "/data/soft/logstash/logs" --config.reload.automatic
-Restart=always
-WorkingDirectory=/
-Nice=19
-LimitNOFILE=16384
-
-# When stopping, how long to wait before giving up and sending SIGKILL?
-# Keep in mind that SIGKILL on a process can cause data loss.
-TimeoutStopSec=infinity
-
-[Install]
-WantedBy=multi-user.target
-
-#设置开机启动
-systemctl enable logstash
+~~~bash
 
 ~~~
 
 
 
-### 安装kibana
+- 检测配置文件是否正确`./bin/logstash -t -f config/kafka-to-elastic.conf`
+
+## 安装Kibana
 
 ~~~bash
 #将安装包解压到对应文件夹
@@ -297,7 +370,7 @@ systemctl enable kibana
 
 
 
-### 配置filebeat到k8s集群
+## 配置filebeat到k8s集群
 
 ~~~bash
 #在开发环境k8s的master节点10.100.10.156
@@ -502,3 +575,10 @@ spec:
 kubectl apply -f /data/other-yml/filebeat/
 ~~~
 
+
+
+## 问题
+
+在生产环境调试中，日志显示不及时，排查思路是查看filebeat---kafka---logstash
+
+最后确定问题是logstash过滤日志性能不足，将kafka副本数增加到6个，logstash增加至3个，每个logstash开2个线程收集。问题解决
