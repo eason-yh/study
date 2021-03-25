@@ -295,7 +295,7 @@ input {
         topics => "filebeat"
         codec => json {charset => "UTF-8"}
         auto_offset_reset => "latest"
-        consumer_threads => 16
+        consumer_threads => 2
         decorate_events => false
     }
 }
@@ -430,6 +430,10 @@ data:
       enabled: true
       paths:
       - /var/log/containers/icp*.log
+      multiline.pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+      multiline.negate: true
+      multiline.match: after
+      multiline.timeout: 30
     processors:
       - add_kubernetes_metadata:
           in_cluster: true
@@ -441,48 +445,14 @@ data:
     output:
       kafka:
         enabled: true # 增加kafka的输出
-        hosts: ["10.100.10.162:9092"]
-        topic: filebeat
+        hosts: ["x.x.x.x:9092","x.x.x.x:9092","x.x.x.x:9092"]
+        topic: produce-filebeat
         max_message_bytes: 5242880
         partition.round_robin:
           reachable_only: true
         keep-alive: 120
         required_acks: 1
 
-    setup.ilm:
-      policy_file: /etc/indice-lifecycle.json
-
-#vim filebeat.indice-lifecycle.configmap.yml
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: kube-system
-  name: filebeat-indice-lifecycle
-  labels:
-    app: filebeat
-data:
-  indice-lifecycle.json: |-
-    {
-      "policy": {
-        "phases": {
-          "hot": {
-            "actions": {
-              "rollover": {
-                "max_size": "5GB" ,
-                "max_age": "1d"
-              }
-            }
-          },
-          "delete": {
-            "min_age": "3d",
-            "actions": {
-              "delete": {}
-            }
-          }
-        }
-      }
-}
 
 #vim filebeat.daemonset.yml
 ---
@@ -506,7 +476,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
       - name: filebeat
-        image: dev-harbor.cpit.com.cn/library/filebeat:7.8.0
+        image: harbor.cpit.com.cn/library/filebeat:7.8.0
         args: [
           "-c", "/etc/filebeat.yml",
           "-e",
@@ -529,10 +499,6 @@ spec:
           mountPath: /etc/filebeat.yml
           readOnly: true
           subPath: filebeat.yml
-        - name: filebeat-indice-lifecycle
-          mountPath: /etc/indice-lifecycle.json
-          readOnly: true
-          subPath: indice-lifecycle.json
         - name: data
           mountPath: /usr/share/filebeat/data
         - name: varlog
@@ -543,26 +509,22 @@ spec:
           readOnly: true
         - name: dockersock
           mountPath: /var/run/docker.sock
-        - name: dockerimages
-          mountPath: /data/docker-images/containers
+        - name: dockercontainers
+          mountPath: /var/lib/docker/containers
       volumes:
       - name: config
         configMap:
           defaultMode: 0600
           name: filebeat-config
-      - name: filebeat-indice-lifecycle
-        configMap:
-          defaultMode: 0600
-          name: filebeat-indice-lifecycle
       - name: varlog
         hostPath:
           path: /var/log
       - name: varlibdockercontainers
         hostPath:
           path: /var/log/containers/
-      - name: dockerimages
+      - name: dockercontainers
         hostPath:
-          path: /data/docker-images/containers
+          path: /var/lib/docker/containers
       - name: dockersock
         hostPath:
           path: /var/run/docker.sock
