@@ -1,0 +1,155 @@
+prometheus安装
+
+1，下载安装包
+2，解压安装包到指定目录：tar xf prometheus-2.24.1.linux-amd64.tar.gz -C /appdata/inas/
+3，修改配置文件指定本机IP，配置文件：prometheus.yml 修改位置：- targets: ['10.100.10.40:9090']
+4，授权账号权限到prometheus目录：chown -R inas.inas /appdata/inas/prometheus-2.24.1.linux-amd64/
+5，创建开机启动文件：/etc/systemd/system/prometheus.service
+6，修改启动脚本中命令参数和用户
+
+参考文档：https://www.cnblogs.com/fatyao/p/11007357.html
+
+grafana安装
+
+1，下载安装包
+2，安装grafana：yum install -y grafana-4.6.3-1.x86_64.rpm
+3，启动grafana：systemctl start grafana-server
+4，
+    配置文件：/etc/grafana/grafana.ini
+    启动脚本：/usr/lib/systemd/system/grafana-server.service
+    日志目录：/var/log/grafana/grafana.log
+    工作目录：/var/lib/grafana/
+    
+参考文档：https://www.cnblogs.com/flytor/p/11428446.html
+
+rabbitmq镜像集群安装
+1，下载安装包，配置好hosts文件
+2，安装服务，三台都需要安装：
+    yum install -y esl-erlang_23.2-1_centos_7_amd64.rpm
+    yum install -y rabbitmq-server-3.8.11-1.el7.noarch.rpm
+3，三台启动rabbitmq服务，systemctl start rabbitmq-server
+4，将主节点的.erlang.cookie文件推送到41和42上：scp /var/lib/rabbitmq/.erlang.cookie root@10.100.10.41:/var/lib/rabbitmq/
+5，三节点重启服务
+6，三个节点都打开rabbitmq监控插件：rabbitmq-plugins enable rabbitmq_management
+7，在主节点上创建admin用户：
+    rabbitmqctl add_user admin 111111
+    rabbitmqctl set_permissions -p / admin ".*" ".*" ".*"
+    rabbitmqctl set_user_tags admin administrator
+8，登录10.100.10.40:15672，可以查看到节点信息
+9，操作从节点添加到集群
+    rabbitmqctl stop_app
+    rabbitmqctl reset
+    rabbitmqctl join_cluster --ram rabbit@elp-master
+    rabbitmqctl  start_app
+10，登录web界面可以看到集群信息
+11，设置集群模式为镜像模式，三节点都执行：rabbitmqctl set_policy ha-all "^" '{"ha-mode":"all"}'
+
+
+参考文档：https://www.cnblogs.com/FengGeBlog/p/13905563.html
+https://blog.csdn.net/qq_23191379/article/details/107065591
+https://blog.csdn.net/zlbdmm/article/details/92661547
+
+mariadb主从安装
+
+1，下载mariadb安装包
+2，解压安装包到指定目录：tar xf mariadb-10.3.12-linux-systemd-x86_64.tar.gz -C /appdata/
+3，创建mysql存储目录：mkdir mysql-data
+4，创建mysql用户：useradd -s /sbin/nologin -M mysql
+5，mariadb目录授权：chown -R mysql.mysql /appdata/mariadb-10.3.12-linux-systemd-x86_64
+6，初始化数据库：./scripts/mysql_install_db --user=mysql --datadir=/appdata/mariadb-10.3.12-linux-systemd-x86_64
+7，配置环境变量：echo 'export PATH=/appdata/mariadb-10.3.12-linux-systemd-x86_64/bin:$PATH' >> /etc/profile  && source /etc/profile
+8，修改配置文件：/etc/my.cnf
+[mysqld]
+datadir=/appdata/mariadb-10.3.12-linux-systemd-x86_64/mysql-data/
+socket=/tmp/mysql.sock
+# Disabling symbolic-links is recommended to prevent assorted security risks
+symbolic-links=0
+# Settings user and group are ignored when systemd is used.
+# If you need to run mysqld under a different user or group,
+# customize your systemd unit file for mariadb according to the
+# instructions in http://fedoraproject.org/wiki/Systemd
+
+language=/appdata/mariadb-10.3.12-linux-systemd-x86_64/share/english
+
+server-id=1
+log-bin=mysql-bin
+
+[mysqld_safe]
+log-error=/var/log/mariadb/mariadb.log
+pid-file=/appdata/mariadb-10.3.12-linux-systemd-x86_64/mysql/mariadb.pid
+
+#
+# include all files from the config directory
+#
+!includedir /etc/my.cnf.d
+
+9，修改启动脚本：/etc/systemd/system/mariadb.service
+[Unit]
+Description=MariaDB 10.4.8 database server
+Documentation=man:mysqld(8)
+Documentation=https://mariadb.com/kb/en/library/systemd/
+After=network.target
+[Install]
+WantedBy=multi-user.target
+Alias=mysql.service
+Alias=mysqld.service
+[Service]
+Type=notify
+PrivateNetwork=false
+User=mysql
+Group=mysql
+CapabilityBoundingSet=CAP_IPC_LOCK CAP_DAC_OVERRIDE CAP_AUDIT_WRITE
+PrivateDevices=false
+ProtectSystem=full
+ProtectHome=true
+PermissionsStartOnly=true
+ExecStartPre=/bin/sh -c "systemctl unset-environment _WSREP_START_POSITION"
+ExecStartPre=/bin/sh -c "[ ! -e /appdata/mariadb-10.3.12-linux-systemd-x86_64/bin/galera_recovery ] && VAR= || \
+ VAR=`/appdata/mariadb-10.3.12-linux-systemd-x86_64/bin/galera_recovery`; [ $? -eq 0 ] \
+ && systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1"
+ExecStart=/appdata/mariadb-10.3.12-linux-systemd-x86_64/bin/mysqld $MYSQLD_OPTS $_WSREP_NEW_CLUSTER $_WSREP_START_POSITION
+ExecStartPost=/bin/sh -c "systemctl unset-environment _WSREP_START_POSITION"
+KillSignal=SIGTERM
+SendSIGKILL=no
+Restart=on-abort
+RestartSec=5s
+UMask=007
+PrivateTmp=false
+LimitNOFILE=16364
+
+10，从库安装相同步骤操作，从库配置文件：
+[mysqld]
+datadir=/appdata/mariadb-10.3.12-linux-systemd-x86_64/mysql-data/
+socket=/tmp/mysql.sock
+# Disabling symbolic-links is recommended to prevent assorted security risks
+symbolic-links=0
+# Settings user and group are ignored when systemd is used.
+# If you need to run mysqld under a different user or group,
+# customize your systemd unit file for mariadb according to the
+# instructions in http://fedoraproject.org/wiki/Systemd
+
+language=/appdata/mariadb-10.3.12-linux-systemd-x86_64/share/english
+
+server-id=2
+
+[mysqld_safe]
+log-error=/var/log/mariadb/mariadb.log
+pid-file=/appdata/mariadb-10.3.12-linux-systemd-x86_64/mysql/mariadb.pid
+
+#
+# include all files from the config directory
+#
+!includedir /etc/my.cnf.d
+
+11，保证主库和从库数据一直，先将主库数据同步到从库
+12，查看主库数据节点并记录：show master status:
+13，创建同步账号：GRANT REPLICATION SLAVE ON *.* To 'rep'@'10.100.10.41' IDENTIFIED BY 'rep123456';
+14，从库配置主库同步信息：CHANGE MASTER TO MASTER_HOST='10.100.10.40',MASTER_USER='rep',MASTER_PASSWORD='rep123456', MASTER_LOG_FILE='mysql-bin.000001',MASTER_LOG_POS=328;
+15，从库启动主从复制：start slave;
+16，查看主从复制状态：show slave status \G;
+
+参考文档：
+https://www.cnblogs.com/ysuwangqiang/p/11766470.html
+https://www.cnblogs.com/honeylemon/p/10591899.html
+https://www.cnblogs.com/huhongy/p/11206724.html
+
