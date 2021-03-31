@@ -1,26 +1,30 @@
-# EFK+Kafka开发环境安装
+# EFK+Kafka安装
 
 
 
 
 
-## 开发环境信息统计
+## 一，信息统计
 
-| IP地址        | 主机名称   | 服务名称      | 版本号     |
-| :------------ | ---------- | ------------- | ---------- |
-| 10.100.10.162 | dev-elk-01 | elasticstarch | 7.9.3      |
-|               |            | kibana        | 7.9.3      |
-|               |            | kafka         | 2.11-2.3.0 |
-|               |            | zookeeper     | 3.4.14     |
-|               |            | logstash      | 7.10.0     |
-| 10.100.10.162 | dev-elk-02 | elasticstarch | 7.9.3      |
-|               |            | kafka         | 2.11-2.3.0 |
-|               |            | zookeeper     | 3.4.14     |
-| 10.100.10.162 | dev-elk-03 | elasticstarch | 7.9.3      |
-|               |            | kafka         | 2.11-2.3.0 |
-|               |            | zookeeper     | 3.4.14     |
+| IP地址        | 主机名称   | 服务名称      | 版本号 |
+| :------------ | ---------- | ------------- | ------ |
+| 10.100.10.162 | dev-elk-01 | elasticstarch | 7.9.3  |
+|               |            | kibana        | 7.9.3  |
+|               |            | kafka         | 2.3.0  |
+|               |            | zookeeper     | 3.4.14 |
+|               |            | logstash      | 7.10.0 |
+| 10.100.10.163 | dev-elk-02 | elasticstarch | 7.9.3  |
+|               |            | kafka         | 2.3.0  |
+|               |            | zookeeper     | 3.4.14 |
+|               |            | logstash      | 7.10.0 |
+| 10.100.10.164 | dev-elk-03 | elasticstarch | 7.9.3  |
+|               |            | kafka         | 2.3.0  |
+|               |            | zookeeper     | 3.4.14 |
+|               |            | logstash      | 7.10.0 |
 
-开发环境文件包和服务目录规范
+
+
+文件包和服务目录规范
 
 | 安装包路径                        | /data/tools/                  |
 | --------------------------------- | ----------------------------- |
@@ -33,20 +37,20 @@
 
  
 
-开发环境服务web界面登录地址，需要提前登录VPN
+安装包下载地址
 
-| Kibana地址     | 10.100.10.162:5601                         | 账号/密码        |
-| -------------- | ------------------------------------------ | ---------------- |
-| Harbor仓库地址 | https://10.100.10.156/harbor               | admin/Potevio123 |
-| Git 仓库地址   | ssh://yinhe@10.100.10.151:29418/icpdev.git | yinhe/yinhe1     |
+| elastic   | https://mirrors.huaweicloud.com/elasticsearch/7.9.3/elasticsearch-7.9.3-linux-x86_64.tar.gz |
+| --------- | ------------------------------------------------------------ |
+| zookeeper | http://archive.apache.org/dist/zookeeper/zookeeper-3.4.14/zookeeper-3.4.14.tar.gz |
+| kafka     | https://archive.apache.org/dist/kafka/2.3.0/kafka_2.11-2.3.0.tgz |
+| logstash  | https://artifacts.elastic.co/downloads/logstash/logstash-7.10.0-linux-x86_64.tar.gz |
+| kibana    | https://artifacts.elastic.co/downloads/kibana/kibana-7.9.3-linux-x86_64.tar.gz |
 
- 
 
- 
 
 ## 安装Elasticsearch集群
 
----
+
 
 - 安装JDK，elastic依赖java环境，本地使用jdk版本jdk-8u191-linux-x64.tar.gz
 
@@ -222,6 +226,7 @@ group.initial.rebalance.delay.ms=0
 #三台主机的配置文件中的broker和IP地址不同，其他的为
 broker.id=1
 broker.id=2
+listeners对应本地内网IP
 
 #启动kafka
 /data/soft/kafka/bin/kafka-server-start.sh -daemon /data/soft/kafka/config/server.properties
@@ -291,15 +296,18 @@ WantedBy=multi-user.target
 #编辑新的配置文件config/kafka-logstash-es.conf
 input {
     kafka {
-        bootstrap_servers => "10.100.10.162:9092"
-        topics => "filebeat"
+        bootstrap_servers => "10.100.10.162:9092,10.100.10.163:9092,10.100.10.164:9092"
+        type => "produce"
+        client_id => "produce2"
+        group_id => "produce"
+        topics => "produce-filebeat"
         codec => json {charset => "UTF-8"}
         auto_offset_reset => "latest"
         consumer_threads => 2
         decorate_events => false
     }
-}
 
+}
 filter {
     if [stream] == "stdout" {
         json {
@@ -309,18 +317,65 @@ filter {
 }
  
 output {
-   elasticsearch {
-            hosts => ["10.100.10.162:9200"]
-            index => "filebeat-%{+yyyy-MM-dd}"
-            document_type => "log"
-            timeout => 300
-        }
-}
+    elasticsearch {
+        hosts => ["10.100.10.162:9200","10.100.10.163:9200","10.100.10.164:9200"]
+        index => "produce-filebeat-%{+yyyy-MM-dd}"
+        timeout => 300
+    }
+} 
+
 ~~~
 
-- 收集不同的Topic到Elastic
+- 收集不同的Topic到Elastic，请通过测试在使用
 
 ~~~bash
+input {
+    kafka {
+        bootstrap_servers => "10.100.10.162:9092,10.100.10.163:9092,10.100.10.164:9092"
+        type => "kaifa"
+        client_id => "kaifa1"
+        topics => "filebeat"
+        codec => json {charset => "UTF-8"}
+        auto_offset_reset => "latest"
+        consumer_threads => 16
+        decorate_events => false
+    }
+    kafka {
+        bootstrap_servers => "10.100.10.162:9092,10.100.10.163:9092,10.100.10.164:9092"
+        type => "prod"
+        client_id => "prod1"
+        topics => "prod-filebeat-jar"
+        codec => json {charset => "UTF-8"}
+        auto_offset_reset => "latest"
+        consumer_threads => 16
+        decorate_events => false
+    }
+}
+
+#filter {
+#    if [stream] == "stdout" {
+#        json {
+#            source => "message"
+#        }
+#    }
+#}
+ 
+output {
+    if [type] == "prod" {
+        elasticsearch {
+            hosts => ["10.100.10.162:9200","10.100.10.163:9200","10.100.10.164:9200"]
+            index => "prod-filebeat-%{+yyyy-MM-dd}"
+            timeout => 300
+        }
+    }
+    else if [type] == "kaifa" {
+        elasticsearch {
+            hosts => ["10.100.10.162:9200","10.100.10.163:9200","10.100.10.164:9200"]
+            index => "filebeat-%{+yyyy-MM-dd}"
+            timeout => 300
+        }
+    }
+}
 
 ~~~
 
@@ -476,7 +531,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
       - name: filebeat
-        image: harbor.cpit.com.cn/library/filebeat:7.8.0
+        image: filebeat:7.8.0
         args: [
           "-c", "/etc/filebeat.yml",
           "-e",
