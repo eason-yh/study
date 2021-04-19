@@ -143,8 +143,8 @@ pid-file=/appdata/mariadb-10.3.12-linux-systemd-x86_64/mysql/mariadb.pid
 
 11，保证主库和从库数据一直，先将主库数据同步到从库
 12，查看主库数据节点并记录：show master status:
-13，创建同步账号：GRANT REPLICATION SLAVE ON *.* To 'rep'@'10.100.10.41' IDENTIFIED BY 'rep123456';
-14，从库配置主库同步信息：CHANGE MASTER TO MASTER_HOST='10.100.10.40',MASTER_USER='rep',MASTER_PASSWORD='rep123456', MASTER_LOG_FILE='mysql-bin.000001',MASTER_LOG_POS=328;
+13，创建同步账号：GRANT REPLICATION SLAVE ON *.* To 'rep'@'10.100.10.41' IDENTIFIED BY 'xxxxxxx';
+14，从库配置主库同步信息：CHANGE MASTER TO MASTER_HOST='10.100.10.40',MASTER_USER='rep',MASTER_PASSWORD='xxxxxx', MASTER_LOG_FILE='mysql-bin.000001',MASTER_LOG_POS=328;
 15，从库启动主从复制：start slave;
 16，查看主从复制状态：show slave status \G;
 

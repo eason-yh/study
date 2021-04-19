@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+
+    parameters {
+      string(name: 'PROJECT_NAME', defaultValue: 'gw-apigw', description: '项目部署名称')
+      string(name: 'DEPLOY_PATH', defaultValue: '/root/appdata/auto_deploy/', description: '默认部署位置')
+      string(name: 'GIT_ENV', defaultValue: 'git@10.8.132.192:', description: '网关git前缀地址')
+      string(name: 'CONFIGSERVER_ENV', defaultValue: 'git@10.8.132.192:', description: '配置中心地址')
+      string(name: 'FILE_PATH', defaultValue: 'target/frm-apigateway-1.3.0.jar', description: '网关制成品路径')
+      string(name: 'FILE_DIR_PATH', defaultValue: 'lib/frm-apigateway-1.3.0.jar', description: '网关制成品路径')
+    }
+    stages {
+        stage('Build Parent') {
+            steps {
+                echo '同步网关父节点..'
+                checkout changelog: false, poll: false, scm: [$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: 'jenkins token', url: "${params.GIT_ENV}openapi/gw-parent.git"]]]
+                sh 'mvn clean install'
+            }
+        }
+        stage('Build Apigateway') {
+            steps {
+                echo '同步网关代码..'
+                checkout changelog: false, poll: false, scm: [$class: 'GitSCM', branches: [[name: '*/develop-lc']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: 'jenkins token', url: "${params.GIT_ENV}openapi/gw-daemon-apigateway.git"]]]
+                withMaven(maven: 'maven_eastcom') {
+                    sh "mvn clean install -DskipTests "  
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                echo 'Testing..'
+            }
+        }
+        stage('Deploy-Build-Dir') {
+            steps {
+                echo 'Deploying....'
+                sh "rm -rf ${DEPLOY_PATH}/${PROJECT_NAME}/"
+				sh "mkdir -p ${DEPLOY_PATH}"
+                sh "mkdir ${DEPLOY_PATH}/${PROJECT_NAME}"
+				script{
+					if (sh(script:"ls deploy",returnStatus:true) == 0){
+						sh "cp -rf deploy/* ${DEPLOY_PATH}/${PROJECT_NAME}/"
+					}
+				}
+				sh "cp -rf ${FILE_PATH} ${DEPLOY_PATH}/${PROJECT_NAME}/${FILE_DIR_PATH}"
+            }
+        }
+		stage('Deploy-Run') {
+            steps {
+                echo 'Deploying-Run....'
+				sh "cd ${DEPLOY_PATH}/${PROJECT_NAME}/bin && chmod +x server.sh && ./server.sh restart"
+            }
+        }
+    }
+}
